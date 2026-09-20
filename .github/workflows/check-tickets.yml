@@ -1,0 +1,52 @@
+name: Check Primetime tickets
+
+on:
+  schedule:
+    # GitHub's minimum granularity is 1 minute, but scheduled runs on
+    # low-activity repos can lag by several minutes during busy periods.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      test_notification:
+        description: "Send a test notification instead of checking the page"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: check-tickets
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ticket check
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          MOVIE_KEYWORDS: ${{ vars.MOVIE_KEYWORDS }}
+          FORCE_TEST_NOTIFICATION: ${{ github.event.inputs.test_notification == 'true' && '1' || '' }}
+        run: python scripts/check_tickets.py
+
+      - name: Commit updated state
+        run: |
+          if ! git diff --quiet -- data/state.json; then
+            git config user.name "primetime-bot"
+            git config user.email "actions@users.noreply.github.com"
+            git add data/state.json
+            git commit -m "Update ticket watcher state [skip ci]"
+            git push
+          else
+            echo "No state changes to commit."
+          fi
